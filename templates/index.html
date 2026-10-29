@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi Voice Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .bot-container {
+            width: 120px;
+            height: 120px;
+            background: #3b1b20;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            box-shadow: 0 0 20px #f63b3b;
+            transition: all 0.3s ease;
+        }
+
+        .bot-eye {
+            width: 80px;
+            height: 6px;
+            background: #f63b83;
+            border-radius: 4px;
+            transition: all 0.1s;
+            box-shadow: 0 0 10px #f63b79;
+        }
+
+        .talking .bot-container {
+            box-shadow: 0 0 40px #fa60ba, 0 0 10px #ffffff;
+            transform: scale(1.05);
+        }
+
+        .talking .bot-eye {
+            height: 40px;
+            animation: blinkTalk 0.2s infinite alternate;
+            background: #fa60a0;
+        }
+
+        @keyframes blinkTalk {
+            0% {
+                height: 20px;
+                width: 70px;
+            }
+
+            100% {
+                height: 50px;
+                width: 90px;
+            }
+        }
+
+        .alert-pulse {
+            animation: redPulse 0.5s 3;
+        }
+
+        @keyframes redPulse {
+
+            0%,
+            100% {
+                background-color: #3b1e25;
+            }
+
+            50% {
+                background-color: #ef4444;
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center py-10">
+
+    <div class="text-center mb-8">
+        <h1 class="text-3xl font-bold mb-6 text-blue-400">Voice Bot</h1>
+        <div id="botWrapper" class="flex justify-center mb-4">
+            <div class="bot-container">
+                <div class="bot-eye"></div>
+            </div>
+        </div>
+        <p id="statusText" class="text-gray-400 text-sm">System Ready</p>
+    </div>
+
+    <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-2xl border border-gray-700">
+
+        <div class="mb-6 relative">
+            <label class="block text-gray-400 text-xs uppercase mb-2">Input Text or Speak</label>
+            <div class="flex gap-2">
+                <textarea id="textInput" rows="3"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 focus:outline-none focus:border-blue-500 transition"
+                    placeholder="Type here or click the mic..."></textarea>
+                <button id="micBtn" onclick="toggleSpeechRecognition()"
+                    class="bg-gray-700 hover:bg-gray-600 text-white p-4 rounded-lg transition"
+                    title="Start Voice Recognition">
+                    <i class="fas fa-microphone"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div>
+                <label class="block text-gray-400 text-xs uppercase mb-1">Voice</label>
+                <select id="voiceSelect" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm">
+                    <option value="">Loading voices...</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-gray-400 text-xs uppercase mb-1">Speed: <span id="rateVal">150</span></label>
+                <input type="range" id="rate" min="50" max="300" value="150"
+                    class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+
+            <div>
+                <label class="block text-gray-400 text-xs uppercase mb-1">Volume: <span id="volVal">1.0</span></label>
+                <input type="range" id="volume" min="0" max="1" step="0.1" value="1.0"
+                    class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+        </div>
+
+        <div class="flex gap-4">
+            <button onclick="processText()"
+                class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg shadow-lg transition transform hover:scale-105">
+                <i class="fas fa-play mr-2"></i> Speak
+            </button>
+            <a id="downloadLink" href="#"
+                class="hidden bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition flex items-center"
+                download="speech.wav">
+                <i class="fas fa-download mr-2"></i> Save
+            </a>
+        </div>
+
+        <div id="responseArea" class="mt-6 hidden bg-gray-900 p-4 rounded-lg border border-gray-700">
+            <p class="text-xs text-gray-500 uppercase mb-1">Bot Response:</p>
+            <p id="responseText" class="text-blue-300 italic"></p>
+        </div>
+    </div>
+
+    <audio id="audioPlayer"></audio>
+
+    <script>
+        const audioPlayer = document.getElementById('audioPlayer');
+        const botWrapper = document.getElementById('botWrapper');
+        let recognition;
+
+        fetch('/get_voices')
+            .then(res => res.json())
+            .then(voices => {
+                const select = document.getElementById('voiceSelect');
+                select.innerHTML = '';
+                voices.forEach(v => {
+                    const option = document.createElement('option');
+                    option.value = v.id;
+                    option.text = v.name;
+                    select.appendChild(option);
+                });
+            });
+
+        document.getElementById('rate').oninput = function () { document.getElementById('rateVal').innerText = this.value; }
+        document.getElementById('volume').oninput = function () { document.getElementById('volVal').innerText = this.value; }
+
+        audioPlayer.onplay = () => {
+            botWrapper.classList.add('talking');
+            document.getElementById('statusText').innerText = "Speaking...";
+        };
+        audioPlayer.onended = () => {
+            botWrapper.classList.remove('talking');
+            document.getElementById('statusText').innerText = "System Ready";
+        };
+
+        async function processText() {
+            const text = document.getElementById('textInput').value;
+            const rate = document.getElementById('rate').value;
+            const volume = document.getElementById('volume').value;
+            const voice_id = document.getElementById('voiceSelect').value;
+
+            if (!text) return alert("Please enter some text!");
+
+            document.getElementById('statusText').innerText = "Processing...";
+
+            try {
+                const response = await fetch('/process_speech', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, rate, volume, voice_id })
+                });
+
+                const data = await response.json();
+
+                if (data.is_profane) {
+                    botWrapper.classList.add('alert-pulse');
+                    document.getElementById('statusText').innerText = "PROFANITY DETECTED!";
+                    setTimeout(() => botWrapper.classList.remove('alert-pulse'), 1500);
+                    alert(data.message);
+                    return;
+                }
+
+                if (data.success) {
+                    document.getElementById('responseArea').classList.remove('hidden');
+                    document.getElementById('responseText').innerText = data.bot_response;
+
+                    audioPlayer.src = data.audio_url + "?t=" + new Date().getTime();
+                    audioPlayer.play();
+
+                    const dlLink = document.getElementById('downloadLink');
+                    dlLink.href = data.audio_url;
+                    dlLink.classList.remove('hidden');
+                } else {
+                    alert("Error: " + data.message);
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Failed to connect to Pi.");
+            }
+        }
+
+        function toggleSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert("Your browser does not support Voice Recognition. Try Chrome.");
+                return;
+            }
+
+            const btn = document.getElementById('micBtn');
+
+            if (recognition && recognition.started) {
+                recognition.stop();
+                return;
+            }
+
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                recognition.started = true;
+                btn.classList.add('bg-red-600');
+                btn.classList.remove('bg-gray-700');
+                document.getElementById('statusText').innerText = "Listening...";
+            };
+
+            recognition.onend = () => {
+                recognition.started = false;
+                btn.classList.remove('bg-red-600');
+                btn.classList.add('bg-gray-700');
+                document.getElementById('statusText').innerText = "System Ready";
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('textInput').value = transcript;
+            };
+
+            recognition.start();
+        }
+    </script>
+</body>
+
+</html>
